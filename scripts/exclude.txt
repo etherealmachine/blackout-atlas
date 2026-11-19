@@ -1,0 +1,10 @@
+# Wikidata ids (one per line) the generator should never use, e.g. weak or misleading challenges.
+# Q12345  # reason
+Q623994     # Strategic Arms Limitation Talks: not really tied to a place
+Q130374882  # 2024 Hezbollah headquarters strike: too recent / ongoing conflict
+Q118139960  # Kremlin drone attack: ongoing war, thin article
+Q111013514  # Battle of Sumy: ongoing war
+Q111020511  # Battle of Mykolaiv: ongoing war
+Q120069037  # Nahel Merzouk riots: centred on a recent death of a private individual
+Q122146423  # 2023 Johannesburg building fire: obscure
+Q130374882  # duplicate guard

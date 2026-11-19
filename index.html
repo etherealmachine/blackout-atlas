@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blackout Atlas</title>
+  <meta name="description" content="Read a redacted Wikipedia passage. Pin where it happened, and when.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1b18'/%3E%3Crect x='6' y='9' width='20' height='5' rx='1' fill='%23f3efe6'/%3E%3Crect x='6' y='18' width='13' height='5' rx='1' fill='%23c2410c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><i></i><i></i></span>
+      <span class="name">Blackout Atlas</span>
+    </div>
+    <nav class="modes" aria-label="Game mode">
+      <button class="mode" data-mode="daily" aria-pressed="true">Daily</button>
+      <button class="mode" data-mode="practice" aria-pressed="false">Practice</button>
+    </nav>
+    <div class="status">
+      <span class="round-label">Round <b id="round-num">1</b>/<span id="round-total">5</span></span>
+      <span class="score-label"><b id="total-score">0</b> pts</span>
+      <button class="icon-btn" id="help-btn" aria-label="How to play">?</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="dossier" aria-live="polite">
+      <div class="dossier-head">
+        <span class="tag" id="category">—</span>
+        <span class="clue-count" id="clue-count"></span>
+      </div>
+      <h1 class="title" id="title" hidden></h1>
+      <div class="clues" id="clues"><p class="loading">Loading the archive…</p></div>
+      <div class="dossier-foot">
+        <button class="btn ghost" id="more-btn">Reveal another paragraph <span class="cost" id="more-cost"></span></button>
+        <a class="btn ghost" id="wiki-link" target="_blank" rel="noopener" hidden>Read on Wikipedia ↗</a>
+      </div>
+    </section>
+
+    <section class="guess">
+      <div class="map-wrap">
+        <div id="map" aria-label="World map. Click to place your guess."></div>
+        <div class="map-hint" id="map-hint">Click the map to drop a pin</div>
+      </div>
+
+      <div class="timeline" id="timeline">
+        <div class="timeline-top">
+          <label for="year-input" class="eyebrow">When?</label>
+          <div class="year-edit">
+            <button class="nudge" data-d="-10">−10</button>
+            <button class="nudge" data-d="-1">−1</button>
+            <input id="year-input" inputmode="text" autocomplete="off" spellcheck="false" aria-label="Year (use BC for years before the common era)">
+            <button class="nudge" data-d="1">+1</button>
+            <button class="nudge" data-d="10">+10</button>
+          </div>
+        </div>
+        <input type="range" id="year-slider" min="0" max="1000" step="1" aria-label="Year slider">
+        <div class="ticks" aria-hidden="true">
+          <span style="left:0%">3000 BC</span><span style="left:22.5%">1</span><span style="left:35%">1000</span><span style="left:60%">1800</span><span style="left:78%">1900</span><span style="left:100%">2025</span>
+        </div>
+      </div>
+      <div class="place-note" id="place-note" hidden>This one is a <b>place</b>, not an event — only the location counts (worth double).</div>
+
+      <div class="actions" id="actions">
+        <button class="btn primary" id="submit-btn" disabled>Lock in guess</button>
+      </div>
+
+      <div class="result" id="result" hidden>
+        <div class="result-grid">
+          <div><span class="eyebrow">Distance</span><b id="r-dist"></b><small id="r-dist-pts"></small></div>
+          <div id="r-time-box"><span class="eyebrow">Year</span><b id="r-year"></b><small id="r-year-pts"></small></div>
+          <div><span class="eyebrow">Round</span><b id="r-total"></b><small id="r-mult"></small></div>
+        </div>
+        <button class="btn primary" id="next-btn">Next round →</button>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="summary" class="sheet">
+    <h2>Dossier closed</h2>
+    <p class="big-score"><b id="s-total"></b><span> / <span id="s-max"></span></span></p>
+    <ol class="s-rounds" id="s-rounds"></ol>
+    <div class="sheet-actions">
+      <button class="btn primary" id="share-btn">Copy results</button>
+      <button class="btn ghost" id="again-btn">Play practice round</button>
+    </div>
+    <p class="fine" id="s-note"></p>
+  </dialog>
+
+  <dialog id="help" class="sheet">
+    <h2>How to play</h2>
+    <p>Each round is a passage from a Wikipedia article about a <b>place</b> or an <b>event</b>. Every mention of where it is has been blacked out — and for events, every year too.</p>
+    <ol>
+      <li><b>Pin the map</b> where you think it is.</li>
+      <li><b>Set the year</b> it happened (events only). Type <code>480 BC</code> or use the slider.</li>
+      <li>Stuck? <b>Reveal another paragraph</b> — each one lowers the most you can score that round.</li>
+    </ol>
+    <p>Up to 5,000 points for distance and 5,000 for time. Place-only rounds score distance ×2. Five rounds per game; the Daily set is the same for everyone.</p>
+    <p class="fine">Text from Wikipedia, licensed CC BY-SA 4.0. Map tiles © OpenStreetMap contributors.</p>
+    <div class="sheet-actions"><button class="btn primary" data-close>Got it</button></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>
