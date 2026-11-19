@@ -31,12 +31,13 @@ const state = {
 
 // ------------------------------------------------------------------ map ---
 
-// OpenStreetMap's standard tiles: free, no key, fine for a hobby game (see the OSM tile usage policy).
+// Esri World Street Map: English place names worldwide, no API key needed.
+// (OpenStreetMap's own tiles label everything in the local language/script.)
 // Dark mode is handled with a CSS filter on the tile pane.
 const map = L.map('map', { worldCopyJump: true, minZoom: 1, zoomSnap: 0.5 }).setView([28, 10], 2);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
   maxZoom: 18,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>, HERE, Garmin, OSM',
 }).addTo(map);
 
 const pinIcon = (cls) => L.divIcon({ className: '', html: `<div class="pin ${cls}"></div>`, iconSize: [18, 18], iconAnchor: [9, 22] });

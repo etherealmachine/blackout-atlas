@@ -97,4 +97,4 @@ Hand-written challenges in the same format work too. Redaction ranges are charac
 
 Passages come from Wikipedia under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/);
 every round links back to its source article. Data comes from Wikidata (CC0). Map tiles are
-© OpenStreetMap contributors, and maps are drawn with [Leaflet](https://leafletjs.com/).
+© Esri and its data partners (World Street Map), and maps are drawn with [Leaflet](https://leafletjs.com/).
