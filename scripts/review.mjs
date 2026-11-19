@@ -13,8 +13,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const leaksOnly = args.includes('--leaks');
-const ids = new Set(args.filter((a) => !a.startsWith('--')));
-const { challenges } = JSON.parse(await fs.readFile(path.join(ROOT, 'data/challenges.json'), 'utf8'));
+const ids = new Set(args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--file'));
+const fileArg = args.indexOf('--file');
+const file = fileArg >= 0 ? path.resolve(args[fileArg + 1]) : path.join(ROOT, 'data/challenges.json');
+const { challenges } = JSON.parse(await fs.readFile(file, 'utf8'));
 
 const redacted = ({ text, redactions }) => {
   let out = '', pos = 0;
@@ -34,6 +36,6 @@ for (const c of challenges) {
   if (leaksOnly && !leaked.length) continue;
   shown++;
   console.log(`\n=== ${c.id} · ${c.title} · ${c.category} · ${c.year ?? 'place'} · ${c.lat},${c.lng}${leaked.length ? '  ⚠ visible: ' + leaked.join(', ') : ''}`);
-  clues.forEach((t, i) => console.log(`  [${i + 1}] ${t}\n`));
+  clues.forEach((t, i) => console.log(`  [${i + 1}] (geo ${c.clues[i].geo ?? "?"}: ${(c.clues[i].places || []).join(", ")})\n  ${t}\n`));
 }
 console.log(`\n${shown} of ${challenges.length} challenges shown.`);

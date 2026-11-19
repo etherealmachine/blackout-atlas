@@ -53,9 +53,13 @@ date-seeded shuffle). **Practice** mode deals 5 random rounds and avoids ones yo
    nearby water and continent. Distinctive words from these names are redacted on their own too
    ("Gettysburg" from "Battle of Gettysburg"), but generic words like *Battle*, *River* or *North* are not.
 4. For events, it also redacts years, decades, centuries and `BC`/`AD` dates.
-5. Picks up to three paragraphs: two body paragraphs that mention the subject, then the lead
-   paragraph as the final, easiest clue. Paragraphs where the main name still shows through,
-   or where more than 22% of the text would be blacked out, are skipped.
+5. Scores every paragraph for **location clues**. It fetches every page the article links to that
+   has coordinates, then looks for those place names still visible in each paragraph after redaction.
+   Each place scores by its distance from the answer: 3 points within 100 km, 2 within 400 km, 1 within 1,200 km.
+6. Picks up to three paragraphs: two body paragraphs that mention the subject and score at least
+   `MIN_GEO` (3), vaguest first, then the lead paragraph as the final, easiest clue. Paragraphs where
+   the main name still shows through, or where more than 22% of the text would be blacked out, are
+   skipped. Items with no qualifying paragraph are dropped.
 
 ```bash
 node scripts/generate.mjs                          # 70 events + 30 places (overwrites)

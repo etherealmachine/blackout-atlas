@@ -26,6 +26,7 @@
  * Items listed in scripts/exclude.txt are never used.
  */
 import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,6 +96,7 @@ air flight airlines airways express international
 // bibliography-style lines: "Surname, First. Title..." or anything with ISBN/pp./Press
 const CITATION = /ISBN|\bpp?\.\s?\d|University Press|^\p{Lu}[\p{L}'’-]+, \p{Lu}[\p{L}.]*(?: (?:and )?\p{Lu}[\p{L}.]*)*[,.]/u;
 const RECENT_KEEP_PCT = 30;
+const MIN_GEO = 3; // a body clue needs e.g. one visible place within 100 km, or one within 400 km plus one within 1,200 km
 const idHash = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 
 const SKIP_SECTIONS = /^(see also|references|notes|external links|further reading|bibliography|sources|citations|gallery|in popular culture|popular culture|footnotes|literature|works cited|explanatory notes|in fiction|in film|media|filmography|cultural references|in the media|notes and references)$/i;
@@ -210,7 +212,7 @@ async function getEntities(ids) {
   const need = [...new Set(ids)].filter((id) => !entityCache.has(id));
   for (let i = 0; i < need.length; i += 50) {
     const batch = need.slice(i, i + 50);
-    const res = await cached('ent_' + batch.join('_').slice(0, 180) + '_' + batch.length, () =>
+    const res = await cached('ent_' + createHash('sha1').update(batch.join(',')).digest('hex'), () =>
       getJSON('https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&props=labels|aliases|claims|sitelinks&languages=en&sitefilter=enwiki&ids=' + batch.join('|')));
     for (const [id, ent] of Object.entries(res.entities || {})) entityCache.set(id, slimEntity(ent));
     await sleep(150);
@@ -322,6 +324,73 @@ async function articleText(title) {
   return res.query?.pages?.[0]?.extract || '';
 }
 
+// Every article this one links to that has coordinates, keyed by the names it might appear under
+// in the text (page title without "(disambiguation)"/", Country" parts, plus redirect names).
+async function linkedPlaces(title) {
+  const res = await cached('links_' + title, async () => {
+    const pages = {}, redirects = [];
+    let cont = {};
+    for (let n = 0; n < 15; n++) {
+      const q = new URLSearchParams({
+        action: 'query', format: 'json', formatversion: '2', redirects: '1',
+        generator: 'links', titles: title, gplnamespace: '0', gpllimit: 'max',
+        prop: 'coordinates', colimit: 'max', coprimary: 'primary', ...cont,
+      });
+      const r = await getJSON('https://en.wikipedia.org/w/api.php?' + q);
+      for (const pg of r.query?.pages || []) {
+        const c = pg.coordinates?.find((x) => !x.globe || x.globe === 'earth');
+        if (c) pages[pg.title] = { lat: c.lat, lng: c.lon };
+      }
+      redirects.push(...(r.query?.redirects || []));
+      if (!r.continue) break;
+      cont = r.continue;
+    }
+    return { pages, redirects };
+  });
+  const names = new Map();
+  const add = (name, coord, page) => {
+    const n = name.replace(/\s*\(.*?\)\s*$/, '').replace(/,.*$/, '').trim();
+    if (n.length < 4 || !/^\p{Lu}/u.test(n) || n === n.toUpperCase() || STOPWORDS.has(n.toLowerCase())) return;
+    // dates and numbered things ("January 20", "Route 66") match ordinary text, not places
+    if (/\d/.test(n) || /^(January|February|March|April|May|June|July|August|September|October|November|December)\b/.test(n)) return;
+    if (!names.has(n)) names.set(n, { ...coord, page });
+  };
+  for (const [t, c] of Object.entries(res.pages)) add(t, c, t);
+  for (const r of res.redirects) if (res.pages[r.to]) add(r.from, res.pages[r.to], r.to);
+  return names;
+}
+
+function haversineKm(a, b) {
+  const rad = Math.PI / 180;
+  const h = Math.sin(((b.lat - a.lat) * rad) / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(((b.lng - a.lng) * rad) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// How much does a paragraph (after redaction) point at the answer's location?
+// Each visible place name scores by distance from the answer: 3 within 100 km, 2 within 400 km,
+// 1 within 1,200 km. Each linked page counts once.
+function geoScore(text, ranges, places, answer) {
+  const covered = (s, e) => ranges.some(([rs, re]) => rs <= s && re >= e) ||
+    ranges.filter(([rs, re]) => re > s && rs < e).reduce((n, [rs, re]) => n + Math.min(e, re) - Math.max(s, rs), 0) >= (e - s) * 0.5;
+  let score = 0;
+  const seen = new Set();
+  const found = [];
+  for (const [name, p] of places) {
+    if (seen.has(p.page)) continue;
+    const re = new RegExp(`(?<!${L})${esc(name)}(?!${L})`, 'gu');
+    for (const m of text.matchAll(re)) {
+      if (covered(m.index, m.index + m[0].length)) continue;
+      const d = haversineKm(p, answer);
+      const w = d <= 100 ? 3 : d <= 400 ? 2 : d <= 1200 ? 1 : 0;
+      if (w) { score += w; found.push(`${name}(${Math.round(d)}km)`); }
+      seen.add(p.page);
+      break;
+    }
+  }
+  return { score, found };
+}
+
 function paragraphs(text) {
   const out = [];
   let section = '';
@@ -370,6 +439,7 @@ const L = '[\\p{L}\\p{N}]';
 
 const YEAR_PATTERNS = [
   /\b(?:AD|CE|BC|BCE)\s?\d{1,4}\b/g,
+  /\b\d{1,4}(?=\s?(?:–|—|-|to|and|or)\s?(?:c\.\s?)?\d{1,4}\s?(?:BC|BCE|AD|CE|B\.C\.)(?![\p{L}]))/gu,
   /\b\d{1,4}\s?(?:AD|CE|BC|BCE|B\.C\.|A\.D\.)(?![\p{L}])/gu,
   /\b\d{1,2}(?:st|nd|rd|th)[\s-](?:century|centuries|millennium)\b/gi,
   /\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty-first)[\s-](?:century|centuries|millennium)\b/gi,
@@ -449,17 +519,20 @@ async function buildChallenge(ent, cls, kind) {
     return { ...p, i, text: t, ranges: r, ratio: redactedRatio(t, r), leak: leaks(t, r, coreNames) };
   }).filter((p) => !p.leak && p.ratio < 0.22 && p.text.split(/\s+/).length >= 40 && !/may refer to|^This article/.test(p.text) && !CITATION.test(p.text));
 
-  const lead = evaluated.find((p) => p.sectionIndex === 0);
-  const body = evaluated
-    .filter((p) => p.sectionIndex > 0 && p.text.length <= 1100)
-    .map((p) => ({ ...p, score: Math.min(p.ranges.length, 5) + (p.sectionIndex <= 3 ? 1.5 : 0) + rand() }))
-    .sort((a, b) => b.score - a.score);
+  const places = await linkedPlaces(ent.enwiki);
+  for (const p of evaluated) Object.assign(p, geoScore(p.text, p.ranges, places, coord));
 
-  // need at least one paragraph that actually mentions the redacted subject
-  const picks = body.filter((p) => p.ranges.length > 0).slice(0, 2);
+  const lead = evaluated.find((p) => p.sectionIndex === 0);
+  // body clues must mention the (redacted) subject AND leave visible places near the answer
+  const body = evaluated
+    .filter((p) => p.sectionIndex > 0 && p.text.length <= 1100 && p.ranges.length > 0 && p.score >= MIN_GEO)
+    .map((p) => ({ ...p, rank: Math.min(p.score, 6) + Math.min(p.ranges.length, 4) * 0.5 + (p.sectionIndex <= 3 ? 1 : 0) + rand() }))
+    .sort((a, b) => b.rank - a.rank);
+
+  // two body paragraphs, vaguest first, then the lead as the giveaway
+  const picks = body.slice(0, 2).sort((a, b) => a.score - b.score);
   if (lead) picks.push(lead);
-  if (picks.length < 2) return { skip: 'not enough usable paragraphs' };
-  if (!picks.some((p) => p.ranges.length > 0)) return { skip: 'no redactions at all' };
+  if (!body.length || picks.length < 2) return { skip: `no paragraph with nearby place clues (best ${Math.max(0, ...evaluated.map((p) => p.score))})` };
 
   return {
     challenge: {
@@ -472,7 +545,7 @@ async function buildChallenge(ent, cls, kind) {
       lng: coord.lng,
       year: date ? date.year : null,
       date: date?.monthDay ?? null,
-      clues: picks.map((p) => ({ text: p.text, redactions: p.ranges })),
+      clues: picks.map((p) => ({ text: p.text, redactions: p.ranges, geo: p.score, places: p.found })),
     },
   };
 }
